@@ -1,10 +1,3 @@
-"""
-Source-grounded article rectification.
-
-The goal is to preserve the AI article's phrasing and structure while
-correcting only the facts that contradict the source article(s).
-"""
-
 from __future__ import annotations
 
 import os
@@ -223,16 +216,6 @@ def _safe_fallback(ai_generated_content: str) -> str:
 
 
 def run(ai_generated_content: str, source_article: str) -> str:
-    """
-    Rectify an AI-generated article using the source article(s).
-
-    Args:
-        ai_generated_content: The AI-generated article text to be corrected.
-        source_article: The ground-truth source article(s) for the same story.
-
-    Returns:
-        The rectified article text.
-    """
     user_prompt = _build_user_prompt(source_article, ai_generated_content)
 
     try:

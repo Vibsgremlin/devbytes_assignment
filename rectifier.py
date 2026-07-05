@@ -10,19 +10,16 @@ if VENDOR_DIR.exists():
 from rectification_system import run
 
 def get_article_mapping(article_id: str):
-    # Load article mapping to get file paths
     with open('article_mapping.json', 'r') as f:
         articles = json.load(f)
-    
-    # Find the article by ID
+
     article_data = next((a for a in articles if a['article_id'] == article_id), None)
     if not article_data:
         raise ValueError(f"Article {article_id} not found in mapping")
-    
+
     return article_data
 
 def get_ai_generated_article(article_id: str):
-    # Read the AI-generated article
     _mapping = get_article_mapping(article_id)
     fpath = _mapping['ai_generated_file']
     with open(fpath, 'r', encoding='utf-8') as f:
@@ -30,7 +27,6 @@ def get_ai_generated_article(article_id: str):
     return article
 
 def get_source_article(article_id: str):
-    # Read the ground-truth source article(s)
     _mapping = get_article_mapping(article_id)
     fpath = _mapping['source_file']
     with open(fpath, 'r', encoding='utf-8') as f:
@@ -40,61 +36,40 @@ def get_source_article(article_id: str):
 def save_rectified_article(article_id: str, rectified_content: str):
     mapping = get_article_mapping(article_id)
     fpath = mapping['rectified_file']
-    
-    # Ensure output directory exists
+
     output_path = Path(fpath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(fpath, 'w', encoding='utf-8') as f:
         f.write(rectified_content)
 
 def rectify_article(article_id: str):
-    """
-    Rectify an AI-generated article.
-    
-    Args:
-        article_id: ID of the article (e.g., 'article_001')
-    
-    Returns:
-        str: The rectified article content
-    """
-    
     ai_generated_content = get_ai_generated_article(article_id)
     source_article = get_source_article(article_id)
-    
-    # PLUG YOUR CUSTOM RECTIFIER HERE
+
     rectified_content = run(
         ai_generated_content=ai_generated_content,
         source_article=source_article,
     )
-    ###################################
-    
+
     save_rectified_article(article_id, rectified_content)
-    
+
     print(f"[OK] Rectified {article_id}", flush=True)
     return rectified_content
 
 
 def test_rectifier(count: int):
-    """
-    Test the rectification system on a subset of articles.
-    
-    Args:
-        count: Number of articles to test (default: 16)
-    """
-    # Load article mapping
     with open('article_mapping.json', 'r') as f:
         articles = json.load(f)
-    
-    # Test on first 'count' articles
+
     for i, article in enumerate(articles[:count]):
         if i >= count:
             break
-        
+
         article_id = article['article_id']
-        
+
         print(f"\nProcessing {article_id} ({i+1}/{count})...")
-        
+
         try:
             rectify_article(article_id)
         except Exception as e:
@@ -102,25 +77,21 @@ def test_rectifier(count: int):
 
 
 def rectify_all():
-    """
-    Generate rectified articles for all articles in the mapping.
-    """
-    # Load article mapping
     with open('article_mapping.json', 'r') as f:
         articles = json.load(f)
-    
+
     total = len(articles)
-    
+
     for i, article in enumerate(articles):
         article_id = article['article_id']
-        
+
         print(f"\nProcessing {article_id} ({i+1}/{total})...")
-        
+
         try:
             rectify_article(article_id)
         except Exception as e:
             print(f"[ERROR] Error processing {article_id}: {str(e)}", flush=True)
-    
+
     print(f"\n{'='*50}")
     print(f"Completed! Processed {total} articles.")
     print(f"{'='*50}")

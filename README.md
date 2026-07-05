@@ -173,30 +173,28 @@ You have complete flexibility to design your system:
 
 ## Solution Approach
 
-This implementation uses a source-grounded, minimal-edit rectification pipeline:
+I approached this as a minimal-edit correction problem, not a rewrite problem.
 
-1. `rectifier.py` now loads both the AI-generated article and its mapped source article.
-2. `rectification_system.py` sends both texts to the configured LLM with a strict editor prompt that emphasizes:
-   - preserve structure, tone, and wording when already correct
-   - edit only spans contradicted by the source
-   - remove fabricated add-ons such as `Error Annotations` blocks
-   - return only the final article text
-3. The output is sanitized to strip code fences and annotation sections.
-4. A lightweight validation heuristic checks for obvious over-rewrites (for example, missing headings or overly short outputs). If needed, the system retries once with an even stricter prompt.
-5. If the LLM call fails for a specific article, the batch still completes by falling back to a cleaned version of the AI text so `python rectifier.py rectify-all` does not crash mid-run.
+The main flow is:
+
+1. `rectifier.py` loads the AI-generated article and its mapped source article.
+2. `rectification_system.py` sends both to the model with a prompt that pushes for very small edits only.
+3. The output is cleaned up to remove code fences or fake annotation blocks if they appear.
+4. I added a simple retry check for cases where the model rewrites too much or returns something obviously off.
+5. If one API call fails, the script still keeps going so `python rectifier.py rectify-all` does not stop halfway through the batch.
 
 ### Key Assumptions
 
-- The mapped file in `source_articles/` is the ground-truth reference for the corresponding AI article.
-- Minimal editing is preferred over stylistic rewriting, even when the source article uses different phrasing.
-- Some AI articles may contain fabricated trailing blocks (for example, explicit error annotations) that should never appear in the final submission.
+- The mapped file in `source_articles/` is the correct reference for that AI-generated article.
+- Keeping the original wording matters more than making the article read differently.
+- Some generated articles may include fake trailing blocks like error annotations, so those should be removed from the final output.
 
 ### Design Choices
 
-- **Single-article, source-aware prompting:** keeps implementation simple and token-efficient while grounding each correction in its original source.
-- **Low-temperature generation:** reduces paraphrasing and helps preserve wording.
-- **Post-processing plus retry:** avoids common failure modes such as markdown fences, truncated outputs, or over-aggressive rewrites.
-- **Batch-safe fallback behavior:** prioritizes successful completion of all 104 files during grading.
+- I kept the pipeline source-aware but simple, with one article processed at a time.
+- I used low-temperature generation to reduce unnecessary paraphrasing.
+- I added cleanup and retry logic because some outputs included extra formatting or rewrote too aggressively.
+- I also kept the batch runner fault-tolerant so one bad response would not break the full 104-article run.
 
 ## ⚠️ Submission Verification (Critical)
 
