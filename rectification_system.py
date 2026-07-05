@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import os
 import re
+import site
 import time
 from difflib import SequenceMatcher
+from pathlib import Path
 
-from dotenv import load_dotenv
+VENDOR_DIR = Path(__file__).resolve().parent / ".vendor"
+if VENDOR_DIR.exists():
+    site.addsitedir(str(VENDOR_DIR))
+
+from dotenv.main import load_dotenv
 from litellm import completion
 
 load_dotenv()
@@ -20,11 +26,11 @@ load_dotenv()
 SYSTEM_PROMPT = """You are a meticulous news copy editor.
 
 Your task is to rectify an AI-generated news article using the supplied source
-article(s). Follow these rules strictly:
+evidence. Follow these rules strictly:
 1. Preserve the AI article's structure, headings, tone, paragraph order, and
 wording whenever they are already correct.
 2. Change only spans that are factually unsupported or contradicted by the
-source article(s).
+source evidence.
 3. Remove fabricated add-ons such as "Error Annotations", JSON blocks, notes,
 or meta commentary if they appear in the AI article.
 4. Do not add new sections, bullet lists, or explanations.
@@ -44,6 +50,8 @@ ANNOTATION_MARKERS = (
     "### Error Annotations",
     "## Error Annotations",
 )
+
+WORD_RE = re.compile(r"[a-z0-9]+")
 
 
 def _require_env(name: str) -> str:
@@ -77,11 +85,81 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def _tokenize(text: str) -> set[str]:
+    return set(WORD_RE.findall(text.lower()))
+
+
+def _split_source_chunks(source_article: str) -> list[str]:
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", source_article) if block.strip()]
+    merged: list[str] = []
+    current = ""
+
+    for block in blocks:
+        if block.startswith("#") and current:
+            merged.append(current.strip())
+            current = block
+            continue
+
+        if not current:
+            current = block
+        elif len(current) + len(block) < 900:
+            current = f"{current}\n\n{block}"
+        else:
+            merged.append(current.strip())
+            current = block
+
+    if current:
+        merged.append(current.strip())
+
+    return merged
+
+
+def _select_relevant_source_context(source_article: str, ai_generated_content: str) -> str:
+    if len(source_article) <= 3500:
+        return source_article.strip()
+
+    source_chunks = _split_source_chunks(source_article)
+    ai_sections = [section.strip() for section in re.split(r"\n\s*\n", ai_generated_content) if section.strip()]
+    ai_tokens = _tokenize(ai_generated_content)
+
+    scored_chunks: list[tuple[float, int, str]] = []
+    for idx, chunk in enumerate(source_chunks):
+        chunk_tokens = _tokenize(chunk)
+        if not chunk_tokens:
+            continue
+
+        overlap = len(ai_tokens & chunk_tokens) / max(1, len(chunk_tokens))
+        best_section_match = 0.0
+        for section in ai_sections[:12]:
+            section_tokens = _tokenize(section)
+            if not section_tokens:
+                continue
+            section_overlap = len(section_tokens & chunk_tokens) / max(1, len(section_tokens))
+            if section_overlap > best_section_match:
+                best_section_match = section_overlap
+
+        score = overlap + (best_section_match * 2)
+        if chunk.startswith("#"):
+            score += 0.05
+        scored_chunks.append((score, idx, chunk))
+
+    scored_chunks.sort(reverse=True)
+
+    chosen = sorted(scored_chunks[:8], key=lambda item: item[1])
+    context = "\n\n".join(chunk for _, _, chunk in chosen).strip()
+
+    if len(context) < 1800:
+        return source_article[:3500].strip()
+
+    return context
+
+
 def _build_user_prompt(source_article: str, ai_generated_content: str) -> str:
+    source_context = _select_relevant_source_context(source_article, ai_generated_content)
     return (
-        "Rectify the AI-generated article using the source article(s).\n\n"
-        "SOURCE ARTICLE(S):\n"
-        f"{source_article.strip()}\n\n"
+        "Rectify the AI-generated article using the source evidence.\n\n"
+        "SOURCE EVIDENCE:\n"
+        f"{source_context}\n\n"
         "AI-GENERATED ARTICLE TO RECTIFY:\n"
         f"{ai_generated_content.strip()}\n"
     )
@@ -106,6 +184,7 @@ def _call_llm(user_prompt: str, extra_instruction: str | None = None) -> str:
                 api_key=api_key,
                 api_base=api_base,
                 temperature=0,
+                timeout=90,
             )
             content = response.choices[0].message.content or ""
             cleaned = _cleanup_text(content)
@@ -162,5 +241,4 @@ def run(ai_generated_content: str, source_article: str) -> str:
             rectified = _call_llm(user_prompt, extra_instruction=STRICT_FALLBACK_PROMPT)
         return _cleanup_text(rectified)
     except Exception:
-        # Keep the batch moving even if the LLM call fails for a single article.
         return _safe_fallback(ai_generated_content)

@@ -1,6 +1,12 @@
 import json
 import argparse
+import site
 from pathlib import Path
+
+VENDOR_DIR = Path(__file__).resolve().parent / ".vendor"
+if VENDOR_DIR.exists():
+    site.addsitedir(str(VENDOR_DIR))
+
 from rectification_system import run
 
 def get_article_mapping(article_id: str):
@@ -65,7 +71,7 @@ def rectify_article(article_id: str):
     
     save_rectified_article(article_id, rectified_content)
     
-    print(f"✓ Rectified {article_id}")
+    print(f"[OK] Rectified {article_id}", flush=True)
     return rectified_content
 
 
@@ -92,7 +98,7 @@ def test_rectifier(count: int):
         try:
             rectify_article(article_id)
         except Exception as e:
-            print(f"✗ Error processing {article_id}: {str(e)}")
+            print(f"[ERROR] Error processing {article_id}: {str(e)}", flush=True)
 
 
 def rectify_all():
@@ -113,7 +119,7 @@ def rectify_all():
         try:
             rectify_article(article_id)
         except Exception as e:
-            print(f"✗ Error processing {article_id}: {str(e)}")
+            print(f"[ERROR] Error processing {article_id}: {str(e)}", flush=True)
     
     print(f"\n{'='*50}")
     print(f"Completed! Processed {total} articles.")
@@ -139,8 +145,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.command == 'test':
-        print(f"Testing rectification system on first {args.count} articles...")
+        print(f"Testing rectification system on first {args.count} articles...", flush=True)
         test_rectifier(count=args.count)
     elif args.command == 'rectify-all':
-        print("Processing all mapped articles...")
+        print("Processing all mapped articles...", flush=True)
         rectify_all()
